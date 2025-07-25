@@ -42,7 +42,7 @@ class PlayerTracker:
 
         for i in range(0, len(frames), batch_size):
             batch_frames = frames[i : i + batch_size]
-            detections_batch = self.model.predict(batch_frames)
+            detections_batch = self.model.predict(batch_frames, classes=[0])
             detections += detections_batch
 
         return detections

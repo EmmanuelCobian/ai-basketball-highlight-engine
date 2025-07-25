@@ -23,7 +23,7 @@ def draw_traingle(frame, bbox, color):
         numpy.ndarray: The frame with the triangle drawn on it.
     """
     y = int(bbox[1])
-    x, _ = get_bbox_center(bbox)
+    x, _ = map(int, get_bbox_center(bbox))
 
     triangle_points = np.array([
         [x,y],
@@ -74,7 +74,7 @@ def draw_ellipse(frame, bbox, color, label=None):
         numpy.ndarray: The frame with the ellipse and optional label drawn on it.
     """
     y2 = int(bbox[3])
-    x_center, _ = get_bbox_center(bbox)
+    x_center, _ = map(int, get_bbox_center(bbox))
     width = get_bbox_width(bbox)
 
     # Draw ellipse under player

@@ -1,9 +1,69 @@
-from utils import read_video, save_video
+from utils import read_video, save_video, stream_video_frames, get_video_info, StreamingVideoWriter
 from trackers import PlayerTracker, BallTracker, HoopTracker, ScoreTracker
+from trackers import StreamingPlayerTracker, StreamingBallTracker, StreamingHoopTracker, StreamingScoreTracker
 from drawers import PlayerTracksDrawer, BallTracksDrawer, HoopTracksDrawer, ScoreTracksDrawer
-from ball_aquisition import BallAquisitionDetector
+from drawers import StreamingPlayerTracksDrawer, StreamingBallTracksDrawer
+from ball_aquisition import BallAquisitionDetector, StreamingBallAcquisitionDetector
+
+def main_streaming():
+    """
+    Streaming version that processes video frames one at a time.
+    """
+    input_video_path = "/Users/eman/Downloads/Untitled.mov"
+    # input_video_path = "input_videos/im_1.mov"
+    output_video_path = "output_videos/im_streaming_output.mp4"
+    
+    print("=====GETTING VIDEO INFO=====")
+    video_info = get_video_info(input_video_path)
+    print(f"Video info: {video_info}")
+    
+    player_tracker = StreamingPlayerTracker("yolo11s.pt")
+    ball_tracker = StreamingBallTracker("models/best_im.pt")
+    hoop_tracker = StreamingHoopTracker("models/best_im.pt")
+    score_tracker = StreamingScoreTracker()
+    ball_acquisition_detector = StreamingBallAcquisitionDetector()
+    
+    player_drawer = StreamingPlayerTracksDrawer()
+    ball_drawer = StreamingBallTracksDrawer()
+    
+    video_writer = StreamingVideoWriter(
+        output_video_path,
+        video_info['width'],
+        video_info['height'],
+        video_info['fps']
+    )
+    
+    print("=====PROCESSING FRAMES=====")
+    frame_count = 0
+    try:
+        for frame_num, frame in stream_video_frames(input_video_path):
+            print(f"Processing frame {frame_num + 1}/{video_info['frame_count']}")
+            
+            player_track = player_tracker.process_frame(frame)
+            ball_track = ball_tracker.process_frame(frame)
+            hoop_track = hoop_tracker.process_frame(frame)
+            
+            ball_acquisition = ball_acquisition_detector.process_frame(player_track, ball_track)
+            
+            # score = score_tracker.process_frame(ball_track, hoop_track)
+            
+            output_frame = player_drawer.draw_frame(frame, player_track, ball_acquisition)
+            output_frame = ball_drawer.draw_frame(output_frame, ball_track)
+            
+            video_writer.write_frame(output_frame)
+            
+            frame_count += 1
+    finally:
+        video_writer.release()
+    
+    print(f"=====PROCESSING COMPLETE=====")
+    print(f"Processed {frame_count} frames")
+    print(f"Output video saved to: {output_video_path}")
 
 def main():
+    """
+    Original non-streaming version - keeping for compatibility.
+    """
     print("=====READING VIDEO FRAMES=====")
     video_frames = read_video("input_videos/im_1.mov")
 
@@ -55,4 +115,15 @@ def main():
     save_video(output_video_frames, "output_videos/im_score_tracks.mp4")
 
 if __name__ == "__main__":
-    main()
+    # Choose which version to run
+    print("Choose processing mode:")
+    print("1. Streaming (memory efficient)")
+    print("2. Original (load all frames)")
+    
+    # choice = input("Enter choice (1 or 2): ").strip()
+    choice = "1"
+    
+    if choice == "1":
+        main_streaming()
+    else:
+        main()

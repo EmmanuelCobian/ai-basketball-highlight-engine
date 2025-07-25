@@ -26,8 +26,26 @@ def get_closest_hoop(ball_cx, ball_cy, hoop_bboxes):
 
 
 def score(ball_pos, hoop_pos, frame_num):
-    # ball_pos[frame_num] = {1 : {'bbox': [...]}}
-    # hoop_pos[frame_num] = {0 : {'bbox': [...]}, 1 : {'bbox': [...]}}
+    """
+    Determines whether a basketball shot is likely to score based on ball and hoop positions over a sequence of frames.
+
+    Args:
+        ball_pos (dict): Dictionary mapping frame numbers to ball position data.
+            Example: ball_pos[frame_num] = {1: {'bbox': [...]}}
+        hoop_pos (dict): Dictionary mapping frame numbers to hoop position data.
+            Example: hoop_pos[frame_num] = {0: {'bbox': [...]}, 1: {'bbox': [...]}}
+        frame_num (int): The current frame number to analyze.
+
+    Returns:
+        bool: True if the shot is likely to score (ball passes through the rim area), False otherwise.
+
+    Notes:
+        - Uses the ball's trajectory over the last 30 frames (or fewer if near the start).
+        - Fits a linear model to the ball's path to predict where it will cross the rim height.
+        - Considers a margin around the rim to account for near-misses and rebounds.
+        - ball_pos[frame_num] = {1 : {'bbox': [...]}}
+        - hoop_pos[frame_num] = {0 : {'bbox': [...]}, 1 : {'bbox': [...]}}
+    """
     ball_cx, ball_cy = get_bbox_center(ball_pos[frame_num][1]['bbox'])
 
     clossest_hoop_id = get_closest_hoop(ball_cx, ball_cy, hoop_pos[frame_num])
