@@ -9,8 +9,8 @@ def main_streaming():
     """
     Streaming version that processes video frames one at a time.
     """
-    input_video_path = "/Users/eman/Downloads/Untitled.mov"
-    # input_video_path = "input_videos/im_1.mov"
+    # input_video_path = "/Users/eman/Downloads/Untitled.mov"
+    input_video_path = "input_videos/im_1.mov"
     output_video_path = "output_videos/im_streaming_output.mp4"
     
     print("=====GETTING VIDEO INFO=====")
@@ -18,8 +18,7 @@ def main_streaming():
     print(f"Video info: {video_info}")
     
     player_tracker = StreamingPlayerTracker("yolo11s.pt")
-    ball_tracker = StreamingBallTracker("models/best_im.pt")
-    hoop_tracker = StreamingHoopTracker("models/best_im.pt")
+    ball_hoop_tracker = StreamingBallTracker("models/best_im.pt")
     score_tracker = StreamingScoreTracker()
     ball_acquisition_detector = StreamingBallAcquisitionDetector()
     
@@ -40,8 +39,7 @@ def main_streaming():
             print(f"Processing frame {frame_num + 1}/{video_info['frame_count']}")
             
             player_track = player_tracker.process_frame(frame)
-            ball_track = ball_tracker.process_frame(frame)
-            hoop_track = hoop_tracker.process_frame(frame)
+            ball_track, hoop_track = ball_hoop_tracker.process_frame(frame)
             
             ball_acquisition = ball_acquisition_detector.process_frame(player_track, ball_track)
             

@@ -8,48 +8,69 @@ from .streaming_tracker import StreamingTracker
 
 class StreamingBallTracker(StreamingTracker):
     """
-    A streaming ball tracker that processes frames one at a time.
+    A streaming ball and hoop tracker that processes frames one at a time.
     """
     
     def __init__(self, model_path):
         super().__init__()
         self.model = YOLO(model_path)
-        self.tracks_history = []
+        self.ball_tracks_history = []
+        self.hoop_tracks_history = []
         
     def process_frame(self, frame):
         """
-        Process a single frame for ball tracking.
+        Process a single frame for ball and hoop tracking.
         
         Args:
             frame: Video frame as numpy array.
             
         Returns:
-            dict: Ball tracking results for this frame.
+            dict: Ball and hoop tracking results for this frame.
         """
         detection = self.model.predict([frame])[0]
         
-        frame_tracks = {}
+        ball_frame_tracks = {}
+        hoop_frame_tracks = {}
         cls_names = detection.names
         cls_names_inv = {v: k for k, v in cls_names.items()}
         
         for box_id, box in enumerate(detection.boxes):
+            ball_candidates = []
             if int(box.cls) == cls_names_inv[config.ball_label]:
                 bbox = box.xyxy.cpu().numpy().flatten().tolist()
-                frame_tracks[1] = {
+                conf = float(box.conf)
+                ball_candidates.append({'conf': conf, 'bbox': bbox})
+            if int(box.cls) == cls_names_inv[config.hoop_label]:
+                bbox = box.xyxy.cpu().numpy().flatten().tolist()
+                hoop_frame_tracks[box_id] = {
                     'bbox': bbox,
                     'bbox_center': get_bbox_center(bbox),
                     'bbox_width': get_bbox_width(bbox),
                     'bbox_height': get_bbox_height(bbox),
                 }
-                break
+
+        if ball_candidates:
+            best_ball = max(ball_candidates, key=lambda x: x['conf'])
+            bbox = best_ball['bbox']
+            ball_frame_tracks[1] = {
+                'bbox': bbox,
+                'bbox_center': get_bbox_center(bbox),
+                'bbox_width': get_bbox_width(bbox),
+                'bbox_height': get_bbox_height(bbox),
+            }
         
-        self.tracks_history.append(frame_tracks)
+        self.ball_tracks_history.append(ball_frame_tracks)
+        self.hoop_tracks_history.append(hoop_frame_tracks)
         
-        return frame_tracks
+        return ball_frame_tracks, hoop_frame_tracks
     
-    def get_tracks_history(self):
-        """Get all tracking results so far."""
-        return self.tracks_history
+    def get_hoop_tracks_history(self):
+        """Get all hoop tracking results so far."""
+        return self.hoop_tracks_history
+    
+    def get_ball_tracks_history(self):
+        """Get all ball tracking results so far."""
+        return self.ball_tracks_history
     
     def remove_wrong_detections(self, ball_tracks=None):
         """
@@ -57,7 +78,7 @@ class StreamingBallTracker(StreamingTracker):
         Works on the stored tracks history if no tracks provided.
         """
         if ball_tracks is None:
-            ball_tracks = self.tracks_history
+            ball_tracks = self.ball_tracks_history
             
         ball_tracks_df = pd.DataFrame(ball_tracks)
         ball_tracks_df = ball_tracks_df.interpolate()
@@ -71,7 +92,7 @@ class StreamingBallTracker(StreamingTracker):
             cleaned_tracks.append(frame_tracks)
         
         if ball_tracks is None:
-            self.tracks_history = cleaned_tracks
+            self.ball_tracks_history = cleaned_tracks
             
         return cleaned_tracks
     
@@ -81,7 +102,7 @@ class StreamingBallTracker(StreamingTracker):
         Works on the stored tracks history if no tracks provided.
         """
         if ball_tracks is None:
-            ball_tracks = self.tracks_history
+            ball_tracks = self.ball_tracks_history
             
         ball_positions = [track.get(1, {}).get("bbox", []) for track in ball_tracks]
         
@@ -105,6 +126,6 @@ class StreamingBallTracker(StreamingTracker):
             interpolated_tracks.append(frame_tracks)
         
         if ball_tracks is None:
-            self.tracks_history = interpolated_tracks
+            self.ball_tracks_history = interpolated_tracks
             
         return interpolated_tracks
