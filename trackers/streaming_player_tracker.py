@@ -20,6 +20,7 @@ class StreamingPlayerTracker(StreamingTracker):
         self.track_embeddings = defaultdict(list)
         self.track_bboxes = defaultdict(dict)
         self.tracks_history = []
+        self.frame_count = 0
         
     def process_frame(self, frame):
         """processes a single frame for player tracking
@@ -30,7 +31,8 @@ class StreamingPlayerTracker(StreamingTracker):
         Returns:
             dict: player tracks for the frame
         """
-        detection = self.model.predict([frame], classes=[0])[0]
+        self.frame_count += 1
+        detection = self.model.predict([frame], classes=[0], verbose=False)[0]
         
         frame_tracks = {}
         cls_names = detection.names
@@ -51,6 +53,7 @@ class StreamingPlayerTracker(StreamingTracker):
                     "bbox_center": get_bbox_center(bbox), 
                     "bbox_width": get_bbox_width(bbox), 
                     "bbox_height": get_bbox_height(bbox),
+                    'frame': self.frame_count,
                 }
         
         self.tracks_history.append(frame_tracks)

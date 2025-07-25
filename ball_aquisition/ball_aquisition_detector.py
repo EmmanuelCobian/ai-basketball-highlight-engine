@@ -25,7 +25,7 @@ class BallAquisitionDetector:
                 is considered to hold the ball without requiring distance checking.
         """
         self.possession_threshold = 50
-        self.min_frames = 8
+        self.min_frames = 5
         self.containment_threshold = 0.7
         
     def get_key_basketball_player_assignment_points(self, player_bbox,ball_center):
@@ -185,15 +185,18 @@ class BallAquisitionDetector:
         """
         num_frames = len(ball_tracks)
         possession_list = [-1] * num_frames
+        last_best_player_id = -1
         consecutive_possession_count = {}
         
         for frame_num in range(num_frames):
             ball_info = ball_tracks[frame_num].get(1, {})
             if not ball_info:
+                possession_list[frame_num] = last_best_player_id
                 continue
                 
             ball_bbox = ball_info.get('bbox', [])
             if not ball_bbox:
+                possession_list[frame_num] = last_best_player_id
                 continue
                 
             ball_center = get_bbox_center(ball_bbox)
@@ -209,7 +212,8 @@ class BallAquisitionDetector:
                 consecutive_possession_count = {best_player_id: number_of_consecutive_frames} 
 
                 if consecutive_possession_count[best_player_id] >= self.min_frames:
-                    possession_list[frame_num] = best_player_id
+                    last_best_player_id = best_player_id
+                    possession_list[frame_num] = last_best_player_id
             else:
                 consecutive_possession_count = {}
     

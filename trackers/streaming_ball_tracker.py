@@ -1,5 +1,6 @@
 from ultralytics import YOLO
 import pandas as pd
+import math
 import sys
 sys.path.append('../')
 import config
@@ -16,6 +17,7 @@ class StreamingBallTracker(StreamingTracker):
         self.model = YOLO(model_path)
         self.ball_tracks_history = []
         self.hoop_tracks_history = []
+        self.frame_count = 0
         
     def process_frame(self, frame):
         """
@@ -27,7 +29,8 @@ class StreamingBallTracker(StreamingTracker):
         Returns:
             dict: Ball and hoop tracking results for this frame.
         """
-        detection = self.model.predict([frame])[0]
+        self.frame_count += 1
+        detection = self.model.predict([frame], verbose=False)[0]
         
         ball_frame_tracks = {}
         hoop_frame_tracks = {}
@@ -47,20 +50,24 @@ class StreamingBallTracker(StreamingTracker):
                     'bbox_center': get_bbox_center(bbox),
                     'bbox_width': get_bbox_width(bbox),
                     'bbox_height': get_bbox_height(bbox),
+                    'frame': self.frame_count,
                 }
 
         if ball_candidates:
             best_ball = max(ball_candidates, key=lambda x: x['conf'])
             bbox = best_ball['bbox']
-            ball_frame_tracks[1] = {
-                'bbox': bbox,
-                'bbox_center': get_bbox_center(bbox),
-                'bbox_width': get_bbox_width(bbox),
-                'bbox_height': get_bbox_height(bbox),
-            }
+            if not self.wrong_detection(bbox):
+                ball_frame_tracks[1] = {
+                    'bbox': bbox,
+                    'bbox_center': get_bbox_center(bbox),
+                    'bbox_width': get_bbox_width(bbox),
+                    'bbox_height': get_bbox_height(bbox),
+                    'frame': self.frame_count,
+                }
+                self.ball_tracks_history.append(ball_frame_tracks)
         
-        self.ball_tracks_history.append(ball_frame_tracks)
-        self.hoop_tracks_history.append(hoop_frame_tracks)
+        if len(hoop_frame_tracks) != 0:
+            self.hoop_tracks_history.append(hoop_frame_tracks)
         
         return ball_frame_tracks, hoop_frame_tracks
     
@@ -72,60 +79,52 @@ class StreamingBallTracker(StreamingTracker):
         """Get all ball tracking results so far."""
         return self.ball_tracks_history
     
-    def remove_wrong_detections(self, ball_tracks=None):
+    def wrong_detection(self, cur_bbox, max_frame_gap=5, lookback_frames=3):
         """
-        Remove wrong ball detections based on position consistency.
-        Works on the stored tracks history if no tracks provided.
+        Detect if a detection is valid based on consistency with recent ball positions.
+        Args:
+            cur_bbox (list): Current ball bbox.
+            max_frame_gap (int): Maximum frame gap to consider for validation.
+            lookback_frames (int): Number of recent frames to validate against.
+        Returns:
+            bool: True if detection is likely wrong, False otherwise.
         """
-        if ball_tracks is None:
-            ball_tracks = self.ball_tracks_history
-            
-        ball_tracks_df = pd.DataFrame(ball_tracks)
-        ball_tracks_df = ball_tracks_df.interpolate()
-        ball_tracks_df = ball_tracks_df.bfill()
+        history = self.get_ball_tracks_history()
+        if len(history) == 0:
+            return False
         
-        cleaned_tracks = []
-        for index, row in ball_tracks_df.iterrows():
-            frame_tracks = {}
-            if not pd.isna(row[1]):
-                frame_tracks[1] = row[1]
-            cleaned_tracks.append(frame_tracks)
+        x2, y2 = get_bbox_center(cur_bbox)
+        recent_tracks = []
+        for track_frame in reversed(history[-lookback_frames:]):
+            track = track_frame[1]
+            f_diff = self.frame_count - track['frame']
+            if f_diff <= max_frame_gap:
+                recent_tracks.append(track)
         
-        if ball_tracks is None:
-            self.ball_tracks_history = cleaned_tracks
+        if not recent_tracks:
+            return False
+        
+        for track in recent_tracks:
+            x1, y1 = track['bbox_center']
+            w1, h1 = track['bbox_width'], track['bbox_height']
             
-        return cleaned_tracks
+            dist = math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2)
+            max_dist = 3 * math.sqrt(w1 ** 2 + h1 ** 2)
+            
+            if dist <= max_dist:
+                return False
+        return True
     
-    def interpolate_ball_positions(self, ball_tracks=None):
+    def interpolate_ball_position(self):
         """
-        Interpolate missing ball positions.
-        Works on the stored tracks history if no tracks provided.
+        Interpolate missing ball position. Uses the ball history tracks to interpolate the next ball bbox in the sequence
         """
-        if ball_tracks is None:
-            ball_tracks = self.ball_tracks_history
-            
-        ball_positions = [track.get(1, {}).get("bbox", []) for track in ball_tracks]
-        
-        df_list = []
-        for position in ball_positions:
-            if len(position) == 4:
-                df_list.append(position)
-            else:
-                df_list.append([None, None, None, None])
+        ball_tracks = self.get_ball_tracks_history()
+        df_list = [track.get(1, {}).get("bbox", []) for track in ball_tracks]
+        df_list.append([None, None, None, None])
         
         df = pd.DataFrame(df_list, columns=['x1', 'y1', 'x2', 'y2'])
         df = df.interpolate()
         df = df.bfill()
         
-        interpolated_tracks = []
-        for index, row in df.iterrows():
-            frame_tracks = {}
-            if not pd.isna(row['x1']):
-                bbox = [row['x1'], row['y1'], row['x2'], row['y2']]
-                frame_tracks[1] = {'bbox': bbox}
-            interpolated_tracks.append(frame_tracks)
-        
-        if ball_tracks is None:
-            self.ball_tracks_history = interpolated_tracks
-            
-        return interpolated_tracks
+        return df.iloc[-1].tolist()

@@ -4,14 +4,16 @@ from trackers import StreamingPlayerTracker, StreamingBallTracker, StreamingHoop
 from drawers import PlayerTracksDrawer, BallTracksDrawer, HoopTracksDrawer, ScoreTracksDrawer
 from drawers import StreamingPlayerTracksDrawer, StreamingBallTracksDrawer
 from ball_aquisition import BallAquisitionDetector, StreamingBallAcquisitionDetector
+import cv2
 
 def main_streaming():
     """
     Streaming version that processes video frames one at a time.
     """
     # input_video_path = "/Users/eman/Downloads/Untitled.mov"
-    input_video_path = "input_videos/im_1.mov"
-    output_video_path = "output_videos/im_streaming_output.mp4"
+    # input_video_path = "input_videos/im_1.mov"
+    input_video_path = "input_videos/video1.mov"
+    output_video_path = "output_videos/im_streaming_output_lg.mp4"
     
     print("=====GETTING VIDEO INFO=====")
     video_info = get_video_info(input_video_path)
@@ -19,7 +21,6 @@ def main_streaming():
     
     player_tracker = StreamingPlayerTracker("yolo11s.pt")
     ball_hoop_tracker = StreamingBallTracker("models/best_im.pt")
-    score_tracker = StreamingScoreTracker()
     ball_acquisition_detector = StreamingBallAcquisitionDetector()
     
     player_drawer = StreamingPlayerTracksDrawer()
@@ -43,10 +44,19 @@ def main_streaming():
             
             ball_acquisition = ball_acquisition_detector.process_frame(player_track, ball_track)
             
-            # score = score_tracker.process_frame(ball_track, hoop_track)
-            
             output_frame = player_drawer.draw_frame(frame, player_track, ball_acquisition)
             output_frame = ball_drawer.draw_frame(output_frame, ball_track)
+            
+            cv2.putText(
+                output_frame,
+                f"Frame: {frame_num + 1}",
+                (100, 200),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                5,
+                (0, 255, 0),
+                3,
+                cv2.LINE_AA
+            )
             
             video_writer.write_frame(output_frame)
             
