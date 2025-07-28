@@ -1,3 +1,4 @@
+from collections import deque
 from utils import read_video, save_video, stream_video_frames, get_video_info, StreamingVideoWriter
 from trackers import PlayerTracker, BallTracker, HoopTracker, ScoreTracker
 from trackers import StreamingPlayerTracker, StreamingBallTracker, StreamingHoopTracker, StreamingScoreTracker
@@ -11,9 +12,9 @@ def main_streaming():
     Streaming version that processes video frames one at a time.
     """
     # input_video_path = "/Users/eman/Downloads/Untitled.mov"
-    # input_video_path = "input_videos/im_1.mov"
-    input_video_path = "input_videos/video1.mov"
-    output_video_path = "output_videos/im_streaming_output_lg.mp4"
+    input_video_path = "input_videos/im_1.mov"
+    # input_video_path = "input_videos/video1.mov"
+    output_video_path = "output_videos/im_streaming_output.mp4"
     
     print("=====GETTING VIDEO INFO=====")
     video_info = get_video_info(input_video_path)
@@ -36,15 +37,42 @@ def main_streaming():
     print("=====PROCESSING FRAMES=====")
     frame_count = 0
     try:
+        highlights = deque()
+        with open("highlights.txt", "r") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                start_str, end_str = line.split("-")
+                start_str = start_str.strip()
+                end_str = end_str.strip()
+                def time_to_frame(tstr):
+                    h, m, s = map(int, tstr.split(":"))
+                    total_seconds = h * 3600 + m * 60 + s
+                    return int(total_seconds * video_info['fps'])
+                highlights.append((time_to_frame(start_str), time_to_frame(end_str)))
+                    
+        highlight_possessions = {interval: {} for interval in highlights}
+            
         for frame_num, frame in stream_video_frames(input_video_path):
             print(f"Processing frame {frame_num + 1}/{video_info['frame_count']}")
             
             player_track = player_tracker.process_frame(frame)
             ball_track, hoop_track = ball_hoop_tracker.process_frame(frame)
             
-            ball_acquisition = ball_acquisition_detector.process_frame(player_track, ball_track)
+            posession_player_id = ball_acquisition_detector.process_frame(player_track, ball_track)
+
+            if highlights:
+                interval = highlights[0]
+                start_f, end_f = interval
+                if start_f <= frame_num <= end_f:
+                    if posession_player_id == -1:
+                        continue
+                    highlight_possessions[interval][posession_player_id] = highlight_possessions[interval].get(posession_player_id, 0) + 1
+                while highlights and frame_num > end_f:
+                    highlights.popleft()
             
-            output_frame = player_drawer.draw_frame(frame, player_track, ball_acquisition)
+            output_frame = player_drawer.draw_frame(frame, player_track, posession_player_id)
             output_frame = ball_drawer.draw_frame(output_frame, ball_track)
             
             cv2.putText(
@@ -67,6 +95,13 @@ def main_streaming():
     print(f"=====PROCESSING COMPLETE=====")
     print(f"Processed {frame_count} frames")
     print(f"Output video saved to: {output_video_path}")
+    
+    print("=====HIGHLIGHT POSSESSIONS=====")
+    for interval, possession_counts in highlight_possessions.items():
+        print(f"Interval {interval}:")
+        for player_id, count in possession_counts.items():
+            print(f"  Player {player_id}: {count} frames of possession")
+
 
 def main():
     """

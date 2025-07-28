@@ -10,7 +10,7 @@ class StreamingBallAcquisitionDetector:
     def __init__(self):
         self.acquisitions_history = []
         self.possession_threshold = 50
-        self.min_frames = 5
+        self.min_frames = 10
         self.containment_threshold = 0.7
         self.consecutive_possession_count = {}
         
@@ -160,7 +160,8 @@ class StreamingBallAcquisitionDetector:
         Returns:
             int: ID of the best candidate player that has ball posession, -1 if no best candidate
         """
-        res = -1
+        history = self.get_acquisitions_history()
+        res = -1 if len(history) == 0 else history[-1]
         ball_info = ball_track.get(1, {})
         if not ball_info:
             self.acquisitions_history.append(res)
