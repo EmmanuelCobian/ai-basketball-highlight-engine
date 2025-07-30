@@ -3,8 +3,7 @@ from trackers import PlayerTracker, BallTracker, HoopTracker, StreamingScoreTrac
 from drawers import PlayerTracksDrawer, BallTracksDrawer
 from ball_aquisition import BallAcquisitionDetector
 import cv2
-from drawers.utils import draw_frame_num, draw_highlight_detection
-import math
+from drawers.utils import draw_frame_num, draw_highlight_detection, draw_tracking_status
 
 def main():
     INPUT_VIDEO_PATH = "input_videos/im_1.mov"
@@ -46,7 +45,6 @@ def main():
             player_track = player_tracker.process_frame(frame)
             ball_track, hoop_track = ball_hoop_tracker.process_frame(frame)
             posession_player_id = ball_acquisition_detector.process_frame(player_track, ball_track)
-            
             cur_player_ids = set(player_track.keys())
             
             if tracking_id == -1:
@@ -114,33 +112,7 @@ def main():
                 while highlights and frame_num > end_f:
                     highlights.popleft()
             
-            if tracking_id != -1:
-                tracking_status = "Active"
-                status_color = (0, 255, 0)  # Green
-                
-                if 0 < tracking_lost_frames <= max_lost_frames:
-                    tracking_status = f"Lost ({tracking_lost_frames}f)"
-                    status_color = (0, 165, 255)  # Orange
-                elif tracking_lost_frames > max_lost_frames:
-                    tracking_status = "Permanently Lost"
-                    status_color = (0, 0, 255)  # Red
-                
-                player_indicator = f"Player: {tracking_id}"
-                if tracking_id != original_tracking_id:
-                    player_indicator = f"Player: {tracking_id} (substitute for {original_tracking_id})"
-                    status_color = (255, 255, 0)  # Cyan for substitute tracking
-                
-                cv2.putText(
-                    frame,
-                    f"Tracking {player_indicator} ({tracking_status})",
-                    (50, frame.shape[0] - 50),  # Bottom left corner
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    1.0,
-                    status_color,
-                    2,
-                    cv2.LINE_AA
-                )
-                
+            draw_tracking_status(frame, tracking_lost_frames, max_lost_frames, tracking_id, original_tracking_id)    
             draw_frame_num(frame, frame_num, 3, 6, (0, 0, 0))
             output_frame = player_drawer.draw_frame(frame, player_track, posession_player_id)
             output_frame = ball_drawer.draw_frame(output_frame, ball_track)

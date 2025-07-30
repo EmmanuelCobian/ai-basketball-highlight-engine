@@ -10,6 +10,42 @@ import sys
 sys.path.append('../')
 from utils import get_bbox_center, get_bbox_width
 
+def draw_tracking_status(frame, tracking_lost_frames, max_lost_frames, tracking_id, original_tracking_id):
+    """draw the current tracking status of a user chosen player on the frame
+
+    Args:
+        frame (numpy.ndarray): the frame on which to draw
+        tracking_lost_frames (int): the number of consecutive frames in which the tracked player is lost
+        max_lost_frames (int): the max frames allowed for a player to be lost
+        tracking_id (int): the id of the currently tracked player
+        original_tracking_id (int): the id of the user defined player to track
+    """
+    tracking_status = "Active"
+    status_color = (0, 255, 0)  # Green
+    
+    if 0 < tracking_lost_frames <= max_lost_frames:
+        tracking_status = f"Lost ({tracking_lost_frames}f)"
+        status_color = (0, 165, 255)  # Orange
+    elif tracking_lost_frames > max_lost_frames:
+        tracking_status = "Permanently Lost"
+        status_color = (0, 0, 255)  # Red
+    
+    player_indicator = f"Player: {tracking_id}"
+    if tracking_id != original_tracking_id:
+        player_indicator = f"Player: {tracking_id} (substitute for {original_tracking_id})"
+        status_color = (255, 255, 0)  # Cyan for substitute tracking
+    
+    cv2.putText(
+        frame,
+        f"Tracking {player_indicator} ({tracking_status})",
+        (50, frame.shape[0] - 50),  # Bottom left corner
+        cv2.FONT_HERSHEY_SIMPLEX,
+        1.0,
+        status_color,
+        2,
+        cv2.LINE_AA
+    )
+
 def draw_frame_num(frame, frame_num, font_scale, thickness, color):
     """
     Draws a counter for the current frame on the top left corner of the screenq
