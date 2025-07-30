@@ -2,7 +2,7 @@ import sys
 sys.path.append('../')
 from utils import measure_distance
 
-class StreamingBallAcquisitionDetector:
+class BallAcquisitionDetector:
     """
     A streaming ball acquisition detector that processes frames one at a time.
     """

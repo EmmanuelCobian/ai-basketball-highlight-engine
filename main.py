@@ -1,44 +1,40 @@
 from collections import deque
-from utils import read_video, save_video, stream_video_frames, get_video_info, StreamingVideoWriter
-from trackers import PlayerTracker, BallTracker, HoopTracker, ScoreTracker
-from trackers import StreamingPlayerTracker, StreamingBallTracker, StreamingHoopTracker, StreamingScoreTracker
-from drawers import PlayerTracksDrawer, BallTracksDrawer, HoopTracksDrawer, ScoreTracksDrawer
-from drawers import StreamingPlayerTracksDrawer, StreamingBallTracksDrawer
-from ball_aquisition import BallAquisitionDetector, StreamingBallAcquisitionDetector
+from utils import stream_video_frames, get_video_info, StreamingVideoWriter
+from trackers import PlayerTracker, BallTracker, HoopTracker, StreamingScoreTracker
+from drawers import PlayerTracksDrawer, BallTracksDrawer
+from ball_aquisition import BallAcquisitionDetector
 import cv2
 
-def main_streaming():
-    """
-    Streaming version that processes video frames one at a time.
-    """
-    # input_video_path = "/Users/eman/Downloads/Untitled.mov"
-    input_video_path = "input_videos/im_1.mov"
-    # input_video_path = "input_videos/video1.mov"
-    output_video_path = "output_videos/im_streaming_output.mp4"
+def main():
+    INPUT_VIDEO_PATH = "input_videos/im_1.mov"
+    OUTPUT_VIDEO_PATH = "output_videos/im_streaming_output.mp4"
+    HIGHLIGHTS_FILE_PATH = "highlights.txt"
     
     print("=====GETTING VIDEO INFO=====")
-    video_info = get_video_info(input_video_path)
+    video_info = get_video_info(INPUT_VIDEO_PATH)
     print(f"Video info: {video_info}")
     
-    player_tracker = StreamingPlayerTracker("yolo11s.pt")
-    ball_hoop_tracker = StreamingBallTracker("models/best_im.pt")
-    ball_acquisition_detector = StreamingBallAcquisitionDetector()
+    player_tracker = PlayerTracker("yolo11s.pt")
+    ball_hoop_tracker = BallTracker("models/best_im.pt")
+    ball_acquisition_detector = BallAcquisitionDetector()
     
-    player_drawer = StreamingPlayerTracksDrawer()
-    ball_drawer = StreamingBallTracksDrawer()
+    player_drawer = PlayerTracksDrawer()
+    ball_drawer = BallTracksDrawer()
     
     video_writer = StreamingVideoWriter(
-        output_video_path,
+        OUTPUT_VIDEO_PATH,
         video_info['width'],
         video_info['height'],
         video_info['fps']
     )
     
     print("=====PROCESSING FRAMES=====")
+    print("Press 'q' to quit, 'p' to pause/resume, 's' to save screenshot")
     frame_count = 0
+    paused = False
     try:
         highlights = deque()
-        with open("highlights.txt", "r") as f:
+        with open(HIGHLIGHTS_FILE_PATH, "r") as f:
             for line in f:
                 line = line.strip()
                 if not line:
@@ -54,7 +50,7 @@ def main_streaming():
                     
         highlight_possessions = {interval: {} for interval in highlights}
             
-        for frame_num, frame in stream_video_frames(input_video_path):
+        for frame_num, frame in stream_video_frames(INPUT_VIDEO_PATH):
             print(f"Processing frame {frame_num + 1}/{video_info['frame_count']}")
             
             player_track = player_tracker.process_frame(frame)
@@ -86,15 +82,42 @@ def main_streaming():
                 cv2.LINE_AA
             )
             
+            cv2.imshow('Basketball Analysis - Real Time', output_frame)
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord('q'):
+                print("User requested stop with 'q' key")
+                break
+            elif key == ord('p'):
+                paused = not paused
+                print(f"Playback {'paused' if paused else 'resumed'}")
+            elif key == ord('s'):
+                screenshot_path = f"output_videos/screenshot_frame_{frame_num + 1}.png"
+                cv2.imwrite(screenshot_path, output_frame)
+                print(f"Screenshot saved: {screenshot_path}")
+            
+            while paused:
+                key = cv2.waitKey(30) & 0xFF
+                if key == ord('p'):
+                    paused = False
+                    print("Playback resumed")
+                    break
+                elif key == ord('q'):
+                    print("User requested stop with 'q' key")
+                    break
+            
+            if key == ord('q'):
+                break
+            
             video_writer.write_frame(output_frame)
             
             frame_count += 1
     finally:
         video_writer.release()
-    
+        cv2.destroyAllWindows()
+        
     print(f"=====PROCESSING COMPLETE=====")
     print(f"Processed {frame_count} frames")
-    print(f"Output video saved to: {output_video_path}")
+    print(f"Output video saved to: {OUTPUT_VIDEO_PATH}")
     
     print("=====HIGHLIGHT POSSESSIONS=====")
     for interval, possession_counts in highlight_possessions.items():
@@ -102,71 +125,5 @@ def main_streaming():
         for player_id, count in possession_counts.items():
             print(f"  Player {player_id}: {count} frames of possession")
 
-
-def main():
-    """
-    Original non-streaming version - keeping for compatibility.
-    """
-    print("=====READING VIDEO FRAMES=====")
-    video_frames = read_video("input_videos/im_1.mov")
-
-    print("=====TRACKING PLAYERS=====")
-    player_tracker = PlayerTracker("yolo11s.pt")
-    player_tracks = player_tracker.get_object_tracks(video_frames,
-                                                     read_from_stub=True,
-                                                     stub_path="stubs/player_track_stubs.pk1"
-                                                     )
-
-    print("=====TRACKING HOOP(S)=====")
-    hoop_tracker = HoopTracker("models/best_im.pt")
-    hoop_tracks = hoop_tracker.get_object_tracks(video_frames,
-                                                read_from_stub=True, stub_path="stubs/hoop_track_stubs.pk1"
-                                                )
-
-
-    print("=====TRACKING BALL=====")
-    ball_tracker = BallTracker("models/best_im.pt")
-    ball_tracks = ball_tracker.get_object_tracks(video_frames,
-                                                     read_from_stub=True,
-                                                     stub_path="stubs/ball_track_stubs.pk1"
-                                                     )
-    ball_tracks = ball_tracker.remove_wrong_detections(ball_tracks)
-    ball_tracks = ball_tracker.interpolate_ball_positions(ball_tracks)
-
-    print("=====BALL AQUISITION=====")
-    ball_aquisition_detector = BallAquisitionDetector()
-    ball_aquisition = ball_aquisition_detector.detect_ball_possession(player_tracks, ball_tracks)
-
-    print("=====TRACKING SCORES=====")
-    score_tracker = ScoreTracker()
-    score_tracks = score_tracker.get_scores(ball_tracks, hoop_tracks)
-
-    print("=====ASSERTING EQUAL LENGTHS=====")
-    print(len(video_frames) == len(hoop_tracks) == len(ball_tracks) == len(score_tracks) == len(ball_aquisition))
-
-    print("=====DRAWING VIDEO=====")
-    player_tracks_drawer = PlayerTracksDrawer()
-    ball_tracks_drawer = BallTracksDrawer()
-    hoop_tracks_drawer = HoopTracksDrawer()
-    score_tracks_drawer = ScoreTracksDrawer()
-    output_video_frames = player_tracks_drawer.draw(video_frames, player_tracks, ball_aquisition)
-    output_video_frames = ball_tracks_drawer.draw(output_video_frames, ball_tracks)
-    # output_video_frames = hoop_tracks_drawer.draw(output_video_frames, hoop_tracks)
-    # output_video_frames = score_tracks_drawer.draw(output_video_frames, score_tracks)
-
-    print("=====SAVING VIDEO=====")
-    save_video(output_video_frames, "output_videos/im_score_tracks.mp4")
-
 if __name__ == "__main__":
-    # Choose which version to run
-    print("Choose processing mode:")
-    print("1. Streaming (memory efficient)")
-    print("2. Original (load all frames)")
-    
-    # choice = input("Enter choice (1 or 2): ").strip()
-    choice = "1"
-    
-    if choice == "1":
-        main_streaming()
-    else:
-        main()
+    main()

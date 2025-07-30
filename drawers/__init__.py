@@ -2,5 +2,3 @@ from .player_tracks_drawer import PlayerTracksDrawer
 from .ball_tracks_drawer import BallTracksDrawer
 from .hoop_tracks_drawer import HoopTracksDrawer
 from .score_tracks_drawer import ScoreTracksDrawer
-from .streaming_player_tracks_drawer import StreamingPlayerTracksDrawer
-from .streaming_ball_tracks_drawer import StreamingBallTracksDrawer

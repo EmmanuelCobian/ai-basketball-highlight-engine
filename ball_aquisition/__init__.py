@@ -1,2 +1,2 @@
 from .ball_aquisition_detector import BallAquisitionDetector
-from .streaming_ball_aquisition_detector import StreamingBallAcquisitionDetector
+from .streaming_ball_aquisition_detector import BallAcquisitionDetector

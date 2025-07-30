@@ -3,39 +3,33 @@ import cv2
 
 class PlayerTracksDrawer:
     """
-    A drawer class responsible for drawing player tracks on video frames
+    A streaming drawer class for drawing player tracks on individual frames.
     """
-    def __init__(self):
-        return
     
-    def draw(self, video_frames, tracks, ball_aquisition):
+    def __init__(self):
+        pass
+    
+    def draw_frame(self, frame, player_track, ball_acquisition):
         """
-        Draws nba2k like circles around players based on tracker infomation
-
+        Draw player tracks on a single frame.
+        
         Args:
-            video_frames (list): list of video frames
-            tracks (list): a list of dictionaries where each dictionary contains player information for each frame
-
+            frame: Video frame as numpy array.
+            player_track: Player tracking results for this frame.
+            ball_acquisition: Ball acquisition result for this frame.
+            
         Returns:
-            list: a list of processed video frames with drawn player circles
-        
+            Processed frame with drawn player tracks.
         """
-        output_video_frames = []
-
-        for frame_num, frame in enumerate(video_frames):
-            frame = frame.copy()
-            player_dict = tracks[frame_num]
-            player_id_with_ball = ball_aquisition[frame_num]
-
-            for global_id, player in player_dict.items():
-                local_id = player.get("local_id")
-
-                if global_id == player_id_with_ball:
-                    frame = draw_traingle(frame, player['bbox'], (0, 0, 255))
-
-                label = f"G:{global_id} / L:{local_id}" if local_id is not None else f"G:{global_id}"
-                frame = draw_ellipse(frame, player['bbox'], (255, 255, 255), str(local_id))
-
-            output_video_frames.append(frame)
+        frame = frame.copy()
         
-        return output_video_frames
+        for global_id, player in player_track.items():
+            local_id = player.get("local_id")
+            
+            if global_id == ball_acquisition:
+                frame = draw_traingle(frame, player['bbox'], (0, 0, 255))
+            
+            label = f"G:{global_id} / L:{local_id}" if local_id is not None else f"G:{global_id}"
+            frame = draw_ellipse(frame, player['bbox'], (255, 255, 255), str(local_id))
+        
+        return frame
