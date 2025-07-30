@@ -3,6 +3,33 @@ import numpy as np
 import torch
 from .bbox_utils import get_bbox_center, get_bbox_height, get_bbox_width
 
+def find_closest_player(player_track, last_known_position, max_distance=200):
+    """
+    Find the closest player to the last known position of the tracked player.
+    Args:
+        player_track: Dictionary of current player tracks
+        last_known_position: Tuple (x, y) of last known position
+        max_distance: Maximum distance to consider for reassignment
+    Returns:
+        Player ID of closest player, or None if no player is close enough
+    """
+    if not player_track or last_known_position is None:
+        return None
+    
+    closest_player_id = None
+    min_distance = float('inf')
+    
+    for player_id, track_data in player_track.items():
+        current_pos = track_data['bbox_center']
+        distance = math.sqrt((current_pos[0] - last_known_position[0])**2 + 
+                           (current_pos[1] - last_known_position[1])**2)
+        
+        if distance < min_distance and distance <= max_distance:
+            min_distance = distance
+            closest_player_id = player_id
+    
+    return closest_player_id
+
 def get_device():
     """Automatically select devices -> mps（Mac） -> cpu"""
     if torch.cuda.is_available():
