@@ -7,6 +7,35 @@ processed frames back to video files, with support for common video formats.
 
 import cv2
 import os
+from collections import deque
+
+def read_highlights(path, fps):
+    """
+    read in the highlight timestamps line by line and append them to a deque for processing
+
+    Args:
+        path (string): file path location of highlights.txt
+        fps (int): the video fps
+
+    Returns:
+        collections.deque: the highlight timestamps for processing
+    """
+    highlights = deque()
+    with open(path, "r") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            start_str, end_str = line.split("-")
+            start_str = start_str.strip()
+            end_str = end_str.strip()
+            def time_to_frame(tstr):
+                h, m, s = map(int, tstr.split(":"))
+                total_seconds = h * 3600 + m * 60 + s
+                return int(total_seconds * fps)
+            highlights.append((time_to_frame(start_str), time_to_frame(end_str)))
+    return highlights
+        
 
 def read_video(video_path):
     """

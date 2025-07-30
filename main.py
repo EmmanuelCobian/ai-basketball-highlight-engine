@@ -1,9 +1,10 @@
 from collections import deque
-from utils import stream_video_frames, get_video_info, StreamingVideoWriter
+from utils import stream_video_frames, get_video_info, read_highlights, StreamingVideoWriter
 from trackers import PlayerTracker, BallTracker, HoopTracker, StreamingScoreTracker
 from drawers import PlayerTracksDrawer, BallTracksDrawer
 from ball_aquisition import BallAcquisitionDetector
 import cv2
+from drawers.utils import draw_frame_num, draw_highlight_detection
 
 def main():
     INPUT_VIDEO_PATH = "input_videos/im_1.mov"
@@ -33,21 +34,7 @@ def main():
     frame_count = 0
     paused = False
     try:
-        highlights = deque()
-        with open(HIGHLIGHTS_FILE_PATH, "r") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                start_str, end_str = line.split("-")
-                start_str = start_str.strip()
-                end_str = end_str.strip()
-                def time_to_frame(tstr):
-                    h, m, s = map(int, tstr.split(":"))
-                    total_seconds = h * 3600 + m * 60 + s
-                    return int(total_seconds * video_info['fps'])
-                highlights.append((time_to_frame(start_str), time_to_frame(end_str)))
-                    
+        highlights = read_highlights(HIGHLIGHTS_FILE_PATH, video_info['fps'])
         highlight_possessions = {interval: {} for interval in highlights}
             
         for frame_num, frame in stream_video_frames(INPUT_VIDEO_PATH):
@@ -57,30 +44,22 @@ def main():
             ball_track, hoop_track = ball_hoop_tracker.process_frame(frame)
             
             posession_player_id = ball_acquisition_detector.process_frame(player_track, ball_track)
-
+            
+            output_frame = player_drawer.draw_frame(frame, player_track, posession_player_id)
+            output_frame = ball_drawer.draw_frame(output_frame, ball_track)
+            
             if highlights:
                 interval = highlights[0]
                 start_f, end_f = interval
                 if start_f <= frame_num <= end_f:
+                    draw_highlight_detection(output_frame, 3, 6, (0, 255, 0))
                     if posession_player_id == -1:
                         continue
                     highlight_possessions[interval][posession_player_id] = highlight_possessions[interval].get(posession_player_id, 0) + 1
                 while highlights and frame_num > end_f:
                     highlights.popleft()
             
-            output_frame = player_drawer.draw_frame(frame, player_track, posession_player_id)
-            output_frame = ball_drawer.draw_frame(output_frame, ball_track)
-            
-            cv2.putText(
-                output_frame,
-                f"Frame: {frame_num + 1}",
-                (100, 200),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                5,
-                (0, 255, 0),
-                3,
-                cv2.LINE_AA
-            )
+            draw_frame_num(output_frame, frame_num, 3, 6, (0, 0, 0))
             
             cv2.imshow('Basketball Analysis - Real Time', output_frame)
             key = cv2.waitKey(1) & 0xFF

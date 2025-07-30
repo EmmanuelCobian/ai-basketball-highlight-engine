@@ -10,6 +10,58 @@ import sys
 sys.path.append('../')
 from utils import get_bbox_center, get_bbox_width
 
+def draw_frame_num(frame, frame_num, font_scale, thickness, color):
+    """
+    Draws a counter for the current frame on the top left corner of the screenq
+
+    Args:
+        frame (numpy.ndarray): the frame on which to draw the frame count
+        frame_num (int): the frame number
+        font_scale (int): the scale of the font
+        thickness (int): the thickness of the text
+        color (tuple): the color of the text
+    """
+    text = f"Frame: {frame_num + 1}"
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    (text_width, text_height), _ = cv2.getTextSize(text, font, font_scale, thickness)
+    x = 50
+    y = 75 + text_height // 2
+    cv2.putText(
+        frame,
+        text,
+        (x, y),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        font_scale,
+        color,
+        thickness,
+        cv2.LINE_AA
+    )
+    
+def draw_highlight_detection(frame, font_scale, thickness, color):
+    """
+    Draws an indicator on the screen when a highlight detection has happened.
+
+    Args:
+        frame (numpy.anarray): the frame on which to draw on
+        font_scale (int): the scale of the font
+        thickness (int): the thickness of the text
+        color (tuple): the color of the text
+    """
+    text = "HIGHLIGHT"
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    (text_width, text_height), _ = cv2.getTextSize(text, font, font_scale, thickness)
+    x = frame.shape[1] - text_width - 50
+    y = 75 + text_height // 2
+    cv2.putText(
+        frame,
+        text,
+        (x, y),
+        font,
+        font_scale,
+        color,
+        thickness
+    )
+    
 def draw_traingle(frame, bbox, color):
     """
     Draws a filled triangle on the given frame at the specified bounding box location.
