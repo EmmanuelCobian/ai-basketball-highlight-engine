@@ -44,6 +44,7 @@ class PlayerTracker(StreamingTracker):
             bbox = frame_detection[0].tolist()
             cls_id = frame_detection[3]
             local_id = frame_detection[4]
+            conf = frame_detection[2]
             
             if cls_id == cls_names_inv[config.player_label]:
                 frame_tracks[local_id] = {
@@ -53,6 +54,7 @@ class PlayerTracker(StreamingTracker):
                     "bbox_width": get_bbox_width(bbox), 
                     "bbox_height": get_bbox_height(bbox),
                     'frame': self.frame_count,
+                    'confidence': conf,
                 }
         
         self.tracks_history.append(frame_tracks)

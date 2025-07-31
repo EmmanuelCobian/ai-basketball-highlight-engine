@@ -61,7 +61,7 @@ def draw_frame_num(frame, frame_num, font_scale, thickness, color):
     font = cv2.FONT_HERSHEY_SIMPLEX
     (text_width, text_height), _ = cv2.getTextSize(text, font, font_scale, thickness)
     x = 50
-    y = 75 + text_height // 2
+    y = frame.shape[0] - 75 - text_height // 2
     cv2.putText(
         frame,
         text,
