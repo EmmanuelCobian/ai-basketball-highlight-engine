@@ -1,9 +1,9 @@
 from utils import stream_video_frames, get_video_info, read_highlights, find_closest_player, StreamingVideoWriter
+from drawers.utils import draw_frame_num, draw_highlight_detection, draw_tracking_status
 from trackers import PlayerTracker, BallTracker, HoopTracker, StreamingScoreTracker
 from drawers import PlayerTracksDrawer, BallTracksDrawer
 from ball_aquisition import BallAcquisitionDetector
 import cv2
-from drawers.utils import draw_frame_num, draw_highlight_detection, draw_tracking_status
 
 def main():
     INPUT_VIDEO_PATH = "input_videos/im_1.mov"
@@ -63,22 +63,15 @@ def main():
                 except ValueError:
                     print("Invalid input. Please enter a valid integer player ID.")
             else:
-                # PRIORITY 1: Always check if the original player has returned first
                 if original_tracking_id in cur_player_ids and tracking_id != original_tracking_id:
                     print(f"Original player {original_tracking_id} has returned! Switching back from {tracking_id}")
                     tracking_id = original_tracking_id
                     tracking_lost_frames = 0
                     last_known_position = player_track[tracking_id]['bbox_center']
-                
-                # PRIORITY 2: Check if current tracked player (original or substitute) is present
                 elif tracking_id in cur_player_ids:
-                    # Player is still being tracked - reset lost frames counter
                     tracking_lost_frames = 0
                     last_known_position = player_track[tracking_id]['bbox_center']
-                
-                # PRIORITY 3: Current player is lost - try recovery
                 else:
-                    # Player is lost - increment counter
                     tracking_lost_frames += 1
                     print(f"Tracked player {tracking_id} lost for {tracking_lost_frames} frames")
                     
@@ -93,7 +86,6 @@ def main():
                             tracking_lost_frames = 0
                             last_known_position = player_track[tracking_id]['bbox_center']
 
-                    # Check for permanent loss
                     if tracking_lost_frames > max_lost_frames:
                         if tracking_id == original_tracking_id:
                             print(f"Original player {original_tracking_id} has been permanently lost. No substitute found.")
