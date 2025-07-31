@@ -38,7 +38,7 @@ def main():
         tracking_id = -1
         original_tracking_id = -1
         tracking_lost_frames = 0
-        max_lost_frames = 30
+        max_lost_frames = 15
         last_known_position = None
             
         for frame_num, frame in stream_video_frames(INPUT_VIDEO_PATH):
@@ -83,7 +83,7 @@ def main():
                         if closest_player_id is not None:
                             print(f"Attempting to reassign tracking from {tracking_id} to {closest_player_id} (temporary)")
                             tracking_id = closest_player_id
-                            tracking_lost_frames = 0
+                            # tracking_lost_frames = 0
                             last_known_position = player_track[tracking_id]['bbox_center']
 
                     if tracking_lost_frames > max_lost_frames:

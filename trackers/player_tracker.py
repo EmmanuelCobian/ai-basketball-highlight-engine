@@ -1,4 +1,3 @@
-from utils import GlobalIDManager
 from ultralytics import YOLO
 from collections import defaultdict
 import supervision as sv
