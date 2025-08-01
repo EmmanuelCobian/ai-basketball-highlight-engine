@@ -53,6 +53,15 @@ def draw_enhanced_tracking_status(frame, tracking_info):
             orig_text = f"Original ID: {original_id}"
             cv2.putText(frame, orig_text, (15, y_start + 2 * line_height), 
                        cv2.FONT_HERSHEY_SIMPLEX, sub_font_scale, (255, 255, 255), sub_thickness)
+            
+            # Show original lost frames if tracking temporary
+            original_lost_frames = tracking_info.get('original_lost_frames', 0)
+            max_lost_frames = tracking_info.get('max_lost_frames', 15)
+            if is_temporary and original_lost_frames > 0:
+                lost_text = f"Original lost: {original_lost_frames}/{max_lost_frames}"
+                color = (0, 255, 255) if original_lost_frames <= max_lost_frames else (0, 0, 255)
+                cv2.putText(frame, lost_text, (15, y_start + 3 * line_height), 
+                           cv2.FONT_HERSHEY_SIMPLEX, sub_font_scale, color, sub_thickness)
     else:
         # No tracking
         status_text = "NO PLAYER TRACKED"

@@ -35,7 +35,7 @@ def main():
     print("Press 'q' to quit, 'p' to pause/resume, 's' to save screenshot")
     
     # Initialize enhanced tracking
-    enhanced_tracker = EnhancedPlayerTracker(max_lost_frames=15, confidence_threshold=0.25)
+    enhanced_tracker = EnhancedPlayerTracker(max_lost_frames=30, confidence_threshold=0.25)
     tracking_initialized = False
     
     frame_count = 0
@@ -50,7 +50,6 @@ def main():
             posession_player_id = ball_acquisition_detector.process_frame(player_track, ball_track)
             cur_player_ids = set(player_track.keys())
             
-            # Handle initial player selection
             if not tracking_initialized:
                 if cur_player_ids:
                     print(f"Initial frame - Current player IDs: {sorted(cur_player_ids)}")
@@ -77,41 +76,71 @@ def main():
             current_tracked_id, status_message, needs_user_input = enhanced_tracker.update_tracking(player_track)
             if needs_user_input:
                 print(f"\n{status_message}")
-                suggestions = enhanced_tracker.get_reassignment_suggestions(player_track, top_n=3)
                 
-                if suggestions:
-                    print("Suggested reassignments (ID: confidence):")
-                    for i, (pid, confidence) in enumerate(suggestions, 1):
-                        print(f"  {i}. Player {pid}: {confidence:.2f}")
-                    print("  0. Continue without player-specific tracking")
-                    
+                # Check if this is a temporary assignment confirmation
+                if enhanced_tracker.tracking_state and enhanced_tracker.tracking_state.is_temporary_assignment:
                     while True:
                         try:
-                            choice = input("Choose an option (0-3) or enter a specific player ID: ")
+                            choice = input("Confirm this assignment? (y)es/(n)o: ").lower().strip()
                             
-                            if choice == "0":
-                                current_tracked_id = None
-                                print("Continuing without player-specific tracking")
+                            if choice in ['y', 'yes']:
+                                original_id = enhanced_tracker.tracking_state.original_id
+                                enhanced_tracker.confirm_temporary_as_permanent()
+                                current_tracked_id = enhanced_tracker.tracking_state.current_id
+                                needs_user_input = False
+                                print(f"Player {current_tracked_id} is now permanently tracked (replaced original ID {original_id})")
                                 break
-                            elif choice in ["1", "2", "3"]:
-                                idx = int(choice) - 1
-                                if idx < len(suggestions):
-                                    chosen_id = suggestions[idx][0]
-                                    enhanced_tracker.confirm_reassignment(chosen_id, player_track)
-                                    current_tracked_id = chosen_id
-                                    print(f"Reassigned to player {chosen_id}")
-                                    break
+                            elif choice in ['n', 'no']:
+                                enhanced_tracker.deny_temporary_assignment()
+                                print("Temporary assignment denied. Please select a new player to track.")
+                                break
                             else:
-                                chosen_id = int(choice)
-                                if chosen_id in cur_player_ids:
-                                    enhanced_tracker.confirm_reassignment(chosen_id, player_track)
-                                    current_tracked_id = chosen_id
-                                    print(f"Reassigned to player {chosen_id}")
+                                print("Please enter 'y' for yes or 'n' for no.")
+                        except KeyboardInterrupt:
+                            print("\nOperation cancelled.")
+                            break
+                
+                # Regular player selection (either after denial or initial loss)
+                if needs_user_input and (not enhanced_tracker.tracking_state.is_temporary_assignment or 
+                                       enhanced_tracker.tracking_state.lost_frames > enhanced_tracker.max_lost_frames):
+                    suggestions = enhanced_tracker.get_reassignment_suggestions(player_track, top_n=3)
+                    
+                    if suggestions:
+                        print("Suggested reassignments (ID: confidence):")
+                        for i, (pid, confidence) in enumerate(suggestions, 1):
+                            print(f"  {i}. Player {pid}: {confidence:.2f}")
+                        print("  0. Continue without player-specific tracking")
+                        
+                        while True:
+                            try:
+                                choice = input("Choose an option (0-3) or enter a specific player ID: ")
+                                
+                                if choice == "0":
+                                    current_tracked_id = None
+                                    print("Continuing without player-specific tracking")
                                     break
+                                elif choice in ["1", "2", "3"]:
+                                    idx = int(choice) - 1
+                                    if idx < len(suggestions):
+                                        chosen_id = suggestions[idx][0]
+                                        enhanced_tracker.confirm_reassignment(chosen_id, player_track)
+                                        current_tracked_id = chosen_id
+                                        print(f"Reassigned to player {chosen_id}")
+                                        break
                                 else:
-                                    print(f"Player {chosen_id} not found. Available: {sorted(cur_player_ids)}")
-                        except ValueError:
-                            print("Invalid input. Please try again.")
+                                    chosen_id = int(choice)
+                                    if chosen_id in cur_player_ids:
+                                        enhanced_tracker.confirm_reassignment(chosen_id, player_track)
+                                        current_tracked_id = chosen_id
+                                        print(f"Reassigned to player {chosen_id}")
+                                        break
+                                    else:
+                                        print(f"Player {chosen_id} not found. Available: {sorted(cur_player_ids)}")
+                            except ValueError:
+                                print("Invalid input. Please try again.")
+                            except KeyboardInterrupt:
+                                print("\nOperation cancelled.")
+                                break
             
             if highlights:
                 interval = highlights[0]
@@ -126,9 +155,11 @@ def main():
             
             tracking_status_info = {
                 'tracked_id': current_tracked_id,
-                'original_id': enhanced_tracker.tracking_state.original_id if enhanced_tracker.tracking_state else None,
-                'confidence': enhanced_tracker.tracking_state.confidence if enhanced_tracker.tracking_state else 0.0,
-                'is_temporary': enhanced_tracker.tracking_state.is_temporary_assignment if enhanced_tracker.tracking_state else False
+                'original_id': enhanced_tracker.tracking_state.original_id,
+                'confidence': enhanced_tracker.tracking_state.confidence,
+                'is_temporary': enhanced_tracker.tracking_state.is_temporary_assignment,
+                'original_lost_frames': enhanced_tracker.tracking_state.original_lost_frames,
+                'max_lost_frames': enhanced_tracker.max_lost_frames
             }
             
             draw_enhanced_tracking_status(frame, tracking_status_info)
@@ -177,9 +208,7 @@ def main():
     tracked_player_highlights = 0
     total_highlights = 0
     
-    # Get the original tracking ID for summary
-    original_tracked_id = enhanced_tracker.tracking_state.original_id if enhanced_tracker.tracking_state else None
-    
+    id_history = enhanced_tracker.tracking_state.id_history if enhanced_tracker.tracking_state else {}
     for interval, possession_counts in highlight_possessions.items():
         start_frame, end_frame = interval
         print(f"Interval {interval} (frames {start_frame}-{end_frame}):")
@@ -194,17 +223,17 @@ def main():
             print(f"  Player {player_id}: {count} frames of possession")
         
         print(f"  Winner: Player {winner_player_id} with {winner_frames} frames")
-        if original_tracked_id and winner_player_id == original_tracked_id:
+        if winner_player_id in id_history:
             tracked_player_highlights += 1
-            print(f"  ✓ Tracked player {original_tracked_id} won this highlight!")
+            print(f"  ✓ Tracked player {winner_player_id} won this highlight!")
         else:
-            print(f"  ✗ Tracked player {original_tracked_id or 'None'} did not win this highlight")
+            print(f"  ✗ Tracked player(s) {id_history or 'None'} did not win this highlight")
             
         total_highlights += 1
         print()
     
     print("\n\n\n=====TRACKING SUMMARY=====")
-    print(f"Tracked Player ID: {original_tracked_id or 'None'}")
+    print(f"Tracked Player(s) ID: {id_history or 'None'}")
     print(f"Highlights won by tracked player: {tracked_player_highlights}")
     print(f"Total highlights: {total_highlights}")
 

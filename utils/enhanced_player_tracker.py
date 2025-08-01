@@ -6,7 +6,7 @@ import math
 import numpy as np
 from collections import deque
 from dataclasses import dataclass
-from typing import Dict, Optional, Tuple, List
+from typing import Dict, Optional, Tuple, List, Set
 
 @dataclass
 class TrackingState:
@@ -15,9 +15,11 @@ class TrackingState:
     current_id: int
     confidence: float
     lost_frames: int
+    original_lost_frames: int
     last_known_position: Optional[Tuple[float, float]]
     position_history: deque
     velocity_estimate: Optional[Tuple[float, float]]
+    id_history: Set
     is_temporary_assignment: bool = False
     
 class EnhancedPlayerTracker:
@@ -25,7 +27,7 @@ class EnhancedPlayerTracker:
     Enhanced player tracking with confidence scoring and smart reassignment.
     """
     
-    def __init__(self, max_lost_frames=15, confidence_threshold=0.7, 
+    def __init__(self, max_lost_frames=30, confidence_threshold=0.7, 
                  max_reassignment_distance=150, history_length=10):
         self.max_lost_frames = max_lost_frames
         self.confidence_threshold = confidence_threshold
@@ -41,9 +43,12 @@ class EnhancedPlayerTracker:
             current_id=player_id,
             confidence=1.0,
             lost_frames=0,
+            original_lost_frames=0,
             last_known_position=position,
             position_history=deque([position], maxlen=self.history_length),
-            velocity_estimate=None
+            velocity_estimate=None,
+            is_temporary_assignment=False,
+            id_history={player_id},
         )
         
     def calculate_player_confidence(self, player_id: int, track_data: dict, 
@@ -151,10 +156,10 @@ class EnhancedPlayerTracker:
                 player_track[self.tracking_state.original_id],
                 self.predict_next_position()
             )
-            # if original_confidence > self.confidence_threshold:
             self.tracking_state.current_id = self.tracking_state.original_id
             self.tracking_state.is_temporary_assignment = False
             self.tracking_state.lost_frames = 0
+            self.tracking_state.original_lost_frames = 0
             self.tracking_state.confidence = original_confidence
             self._update_position_history(player_track[self.tracking_state.current_id]['bbox_center'])
             return (self.tracking_state.current_id, 
@@ -167,45 +172,51 @@ class EnhancedPlayerTracker:
                 player_track[self.tracking_state.current_id],
                 self.predict_next_position()
             )
-            
-            # if current_confidence > self.confidence_threshold:
             self.tracking_state.lost_frames = 0
             self.tracking_state.confidence = current_confidence
             self._update_position_history(player_track[self.tracking_state.current_id]['bbox_center'])
             
-            status = "Tracking normally"
+            # If we're tracking a temporary assignment, keep counting original lost frames
             if self.tracking_state.is_temporary_assignment:
-                status = f"Tracking temporary substitute (ID {self.tracking_state.current_id})"
+                self.tracking_state.original_lost_frames += 1
                 
-                return self.tracking_state.current_id, status, False
+                # Check if original has been lost too long - need user confirmation
+                if self.tracking_state.original_lost_frames > self.max_lost_frames:
+                    return (self.tracking_state.current_id, 
+                           f"Confirm temporary assignment: Keep tracking player {self.tracking_state.current_id} as permanent replacement for {self.tracking_state.original_id}?",
+                           True)
+                else:
+                    status = f"Tracking temporary substitute (ID {self.tracking_state.current_id}) - original lost for {self.tracking_state.original_lost_frames}/{self.max_lost_frames} frames"
+                    return self.tracking_state.current_id, status, False
+            else:
+                return self.tracking_state.current_id, "Tracking normally", False
         
-        # Player is lost - increment lost frames
         self.tracking_state.lost_frames += 1
+        if self.tracking_state.is_temporary_assignment:
+            self.tracking_state.original_lost_frames += 1
+        else:
+            self.tracking_state.original_lost_frames = self.tracking_state.lost_frames
         
-        # Try to find a reassignment candidate
-        candidate_id, candidate_confidence = self.find_best_reassignment_candidate(player_track)
-        
-        if candidate_id and self.tracking_state.lost_frames <= self.max_lost_frames:
-            # Found a good candidate - assign temporarily
-            old_id = self.tracking_state.current_id
-            self.tracking_state.current_id = candidate_id
-            self.tracking_state.is_temporary_assignment = (candidate_id != self.tracking_state.original_id)
-            self.tracking_state.confidence = candidate_confidence
-            self.tracking_state.lost_frames = 0
-            self._update_position_history(player_track[candidate_id]['bbox_center'])
+        if self.tracking_state.lost_frames <= self.max_lost_frames:
+            candidate_id, candidate_confidence = self.find_best_reassignment_candidate(player_track)
             
-            return (candidate_id, 
-                   f"Reassigned from {old_id} to {candidate_id} (confidence: {candidate_confidence:.2f})",
-                   False)
+            if candidate_id:
+                old_id = self.tracking_state.current_id
+                self.tracking_state.current_id = candidate_id
+                self.tracking_state.is_temporary_assignment = (candidate_id != self.tracking_state.original_id)
+                self.tracking_state.confidence = candidate_confidence
+                self.tracking_state.lost_frames = 0
+                self._update_position_history(player_track[candidate_id]['bbox_center'])
+                
+                return (candidate_id, 
+                       f"Reassigned from {old_id} to {candidate_id} (confidence: {candidate_confidence:.2f})",
+                       False)
         
-        # No good candidate found
         if self.tracking_state.lost_frames > self.max_lost_frames:
-            # Lost for too long - need user intervention
             return (None, 
                    f"Player lost for {self.tracking_state.lost_frames} frames. Need user selection.",
                    True)
         else:
-            # Still within tolerance
             return (None, 
                    f"Player lost for {self.tracking_state.lost_frames}/{self.max_lost_frames} frames",
                    False)
@@ -236,5 +247,27 @@ class EnhancedPlayerTracker:
             self.tracking_state.current_id = player_id
             self.tracking_state.is_temporary_assignment = (player_id != self.tracking_state.original_id)
             self.tracking_state.lost_frames = 0
+            self.tracking_state.original_lost_frames = 0
             self.tracking_state.confidence = 1.0  # User confirmed
             self._update_position_history(player_track[player_id]['bbox_center'])
+    
+    def confirm_temporary_as_permanent(self):
+        """Confirm the current temporary assignment as the new permanent target."""
+        if self.tracking_state and self.tracking_state.is_temporary_assignment:
+            self.tracking_state.original_id = self.tracking_state.current_id
+            self.tracking_state.is_temporary_assignment = False
+            self.tracking_state.original_lost_frames = 0
+            self.tracking_state.confidence = 1.0
+            self.tracking_state.id_history.add(self.tracking_state.original_id)
+            return True
+        return False
+    
+    def deny_temporary_assignment(self):
+        """Deny the temporary assignment and prepare for new user selection."""
+        if self.tracking_state:
+            self.tracking_state.current_id = self.tracking_state.original_id
+            self.tracking_state.is_temporary_assignment = False
+            self.tracking_state.lost_frames = self.max_lost_frames + 1
+            self.tracking_state.original_lost_frames = self.max_lost_frames + 1
+            return True
+        return False
