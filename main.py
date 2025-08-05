@@ -34,8 +34,7 @@ def main():
     print("\n\n\n=====PROCESSING FRAMES=====")
     print("Press 'q' to quit, 'p' to pause/resume, 's' to save screenshot")
     
-    # Initialize enhanced tracking
-    enhanced_tracker = EnhancedPlayerTracker(max_lost_frames=30, confidence_threshold=0.25)
+    enhanced_tracker = EnhancedPlayerTracker(max_lost_frames=int(video_info["fps"] * 2), confidence_threshold=0.25)
     tracking_initialized = False
     
     frame_count = 0
