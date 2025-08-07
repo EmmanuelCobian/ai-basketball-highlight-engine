@@ -44,7 +44,7 @@ python -m venv .venv
 # On macOS/Linux:
 source .venv/bin/activate
 # On Windows:
-# .venv\Scripts\activate
+.venv\Scripts\activate
 ```
 
 ### 3. Install Dependencies
@@ -76,9 +76,9 @@ mkdir -p input_videos
 
 Edit `highlights.txt` to define time intervals for highlight detection:
 ```
-# Format: start_time_seconds,end_time_seconds
-10.5,25.0
-45.2,60.8
+# Format: HH:MM:SS,HH:MM:SS
+00:01:00,00:01::05
+00:08:32,00:08::37
 ```
 
 ## Usage
