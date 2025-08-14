@@ -120,3 +120,184 @@ Use the Jupyter notebooks in `training_notebooks/` to:
 - [Ultralytics](https://github.com/ultralytics/ultralytics) for YOLO implementation
 - [OpenCV](https://opencv.org/) for computer vision utilities
 - [Supervision](https://github.com/roboflow/supervision) for tracking utilities
+
+## API (FastAPI + WebSocket)
+
+This project exposes a streaming API for uploading a video, processing it frame-by-frame, pausing for user input via WebSocket messages, and returning a final JSON highlight summary (no video frames are streamed).
+
+### Run the API server
+
+- Install dependencies:
+  - `pip install -r requirements.txt`
+- Start the server:
+  - `python -m uvicorn api_main:app --host 0.0.0.0 --port 8000`
+
+Health check:
+- GET `/health` → `{ "status": "ok" }`
+
+### Processing flow overview
+
+1) Upload a video (multipart/form-data):
+- POST `/sessions`
+  - Form field name: `file`
+  - Response:
+    ```json
+    { "session_id": "<uuid>" }
+    ```
+
+2) Open a WebSocket for streaming status + interactive inputs:
+- WS `/ws/{session_id}`
+  - The server will:
+    - Stream periodic `status_update` messages
+    - Send `user_input_required` messages when selection/confirmation is needed
+    - Finally send `completed` with a `summary` JSON and close the socket
+    - On failures, send `error` then close the socket
+
+Sessions are independent (MVP). Uploaded files are stored in a temporary session directory and cleaned up at the end of processing.
+
+### Message contracts
+
+All messages are JSON objects. Every server→client message now includes the current `frame_num` and the video `fps` (fps is constant across the session).
+
+#### Server → Client
+
+- Status update
+  ```json
+  {
+    "type": "status_update",
+    "frame_num": 511,
+    "frame_current": 511,
+    "frame_total": 1000,
+    "fps": 29.97,
+    "message": "Processing frames..."
+  }
+  ```
+
+- User input required: initial player selection
+  ```json
+  {
+    "type": "user_input_required",
+    "input_type": "player_selection",
+    "frame_num": 42,
+    "fps": 29.97,
+    "data": {
+      "available_players": [
+        { "id": 1, "bbox": [x1,y1,x2,y2], "center": [x,y], "confidence": 0.88 },
+        { "id": 5, "bbox": [x1,y1,x2,y2], "center": [x,y], "confidence": 0.74 }
+      ],
+      "message": "Select initial player to track"
+    }
+  }
+  ```
+
+- User input required: temporary assignment confirmation
+  ```json
+  {
+    "type": "user_input_required",
+    "input_type": "confirmation",
+    "frame_num": 360,
+    "fps": 29.97,
+    "data": {
+      "original_id": 7,
+      "current_id": 13,
+      "original_bbox": [x1,y1,x2,y2],
+      "current_bbox": [x1,y1,x2,y2],
+      "message": "Confirm temporary assignment: keep tracking 13 as permanent replacement for 7?"
+    }
+  }
+  ```
+
+- User input required: reassignment selection
+  ```json
+  {
+    "type": "user_input_required",
+    "input_type": "reassignment_selection",
+    "frame_num": 512,
+    "fps": 29.97,
+    "data": {
+      "available_players": [
+        { "id": 1, "bbox": [x1,y1,x2,y2], "center": [x,y], "confidence": 0.88 },
+        { "id": 5, "bbox": [x1,y1,x2,y2], "center": [x,y], "confidence": 0.74 }
+      ],
+      "current_tracked": { "id": 13, "bbox": [x1,y1,x2,y2] },
+      "suggestions": [
+        { "id": 9, "confidence": 0.72, "bbox": [x1,y1,x2,y2] },
+        { "id": 2, "confidence": 0.65, "bbox": [x1,y1,x2,y2] }
+      ],
+      "message": "Choose a player to reassign or continue without tracking (choice 0)"
+    }
+  }
+  ```
+
+- Completed summary
+  ```json
+  {
+    "type": "completed",
+    "frame_num": 1234,
+    "fps": 29.97,
+    "summary": {
+      "processed_frames": 1234,
+      "tracked_player_ids": [7, 13],
+      "tracked_player_highlights": 3,
+      "total_highlights": 5,
+      "highlights": [
+        {
+          "interval": [100, 240],
+          "possessions": { "7": 45, "12": 18 },
+          "winner": { "player_id": 7, "frames": 45 },
+          "tracked_player_won": true
+        }
+      ]
+    }
+  }
+  ```
+
+- Error
+  ```json
+  { "type": "error", "message": "<details>", "frame_num": 42, "fps": 29.97 }
+  ```
+
+#### Client → Server (WebSocket replies)
+
+- Player selection
+  ```json
+  { "response_type": "player_selection", "player_id": 7 }
+  ```
+
+- Confirmation (yes/no)
+  ```json
+  { "response_type": "confirmation", "confirmed": true }
+  ```
+
+- Reassignment selection
+  - Choose by player id:
+    ```json
+    { "response_type": "reassignment_selection", "player_id": 9 }
+    ```
+  - Choose by suggestion index (1-based):
+    ```json
+    { "response_type": "reassignment_selection", "suggestion_index": 1 }
+    ```
+  - Continue without tracking:
+    ```json
+    { "response_type": "reassignment_selection", "choice": 0 }
+    ```
+
+### Client example
+
+A minimal Python client is provided in `client_example.py` which:
+- Uploads a video via `POST /sessions`
+- Connects to `WS /ws/{session_id}`
+- Auto-responds to input prompts (for demo)
+- Prints the final summary JSON
+
+Usage:
+```bash
+python client_example.py input_videos/video_1.mp4
+```
+
+### Notes
+- Only status updates are streamed; no video frames are sent.
+- Highlight windows are generated per session in-memory by the highlight engine; no shared highlight file is used at runtime.
+- CORS is configured to allow all origins by default for development. Restrict `allow_origins` for production.
+- This MVP keeps session state in memory and cleans up temp files at the end of each session.

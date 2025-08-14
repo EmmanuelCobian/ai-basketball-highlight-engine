@@ -1,6 +1,6 @@
-from utils import stream_video_frames, get_video_info, read_highlights, find_closest_player, StreamingVideoWriter
+from utils import stream_video_frames, get_video_info, read_highlights, StreamingVideoWriter
 from utils.enhanced_player_tracker import EnhancedPlayerTracker
-from drawers.utils import draw_frame_num, draw_highlight_detection, draw_tracking_status
+from drawers.utils import draw_frame_num, draw_highlight_detection
 from drawers.enhanced_utils import draw_enhanced_tracking_status
 from trackers import PlayerTracker, BallTracker, HoopTracker, StreamingScoreTracker
 from drawers import PlayerTracksDrawer, BallTracksDrawer
@@ -8,7 +8,6 @@ from ball_aquisition import BallAcquisitionDetector
 import cv2
 
 def main():
-    # INPUT_VIDEO_PATH = "input_videos/im_1.mov"
     INPUT_VIDEO_PATH = "/Users/eman/Desktop/goplai/basketball_analysis-backup/input_videos/video1.mov"
     OUTPUT_VIDEO_PATH = "output_videos/im_streaming_output.mp4"
     HIGHLIGHTS_FILE_PATH = "highlights.txt"
