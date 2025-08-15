@@ -32,8 +32,8 @@ EXPOSE 8000
 
 # Set environment variables
 ENV PYTHONPATH=/app
-ENV S3_BUCKET=your-basketball-app-bucket
-ENV AWS_REGION=us-east-1
+ENV S3_BUCKET=goplai-s3
+ENV AWS_REGION=us-east-2
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \

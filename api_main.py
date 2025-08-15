@@ -38,6 +38,7 @@ class UploadURLResponse(BaseModel):
     session_id: str
     upload_url: str
     s3_key: str
+    metadata: Dict[str, str]  # Include metadata for client to use
 
 class StartProcessingRequest(BaseModel):
     s3_key: str
@@ -422,6 +423,14 @@ async def get_upload_url(filename: str = Query(..., description="Name of the vid
         
         s3_client = get_s3_client()
         
+        # Prepare metadata
+        upload_timestamp = str(int(time.time()))
+        metadata = {
+            'original-filename': filename,
+            'upload-timestamp': upload_timestamp,
+            'session-id': session_id
+        }
+        
         # Generate presigned URL for PUT operation
         presigned_url = s3_client.generate_presigned_url(
             'put_object',
@@ -429,11 +438,7 @@ async def get_upload_url(filename: str = Query(..., description="Name of the vid
                 'Bucket': S3_BUCKET,
                 'Key': s3_key,
                 'ContentType': 'video/mp4',
-                'Metadata': {
-                    'original-filename': filename,
-                    'upload-timestamp': str(int(time.time())),
-                    'session-id': session_id
-                }
+                'Metadata': metadata
             },
             ExpiresIn=3600
         )
@@ -441,7 +446,8 @@ async def get_upload_url(filename: str = Query(..., description="Name of the vid
         return UploadURLResponse(
             session_id=session_id,
             upload_url=presigned_url,
-            s3_key=s3_key
+            s3_key=s3_key,
+            metadata=metadata
         )
         
     except Exception as e:
