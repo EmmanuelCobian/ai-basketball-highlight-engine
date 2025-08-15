@@ -1,0 +1,32 @@
+# Ignore git and cache files
+.git
+.gitignore
+.github
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache
+.coverage
+
+# Ignore local development files
+.env
+.vscode
+*.log
+.DS_Store
+
+# Ignore output directories
+output_videos/*
+runs/*
+
+# Keep sample input videos but ignore large ones
+input_videos/*.mov
+input_videos/*.mp4
+
+# Keep a sample video for testing
+# input_videos/video_1.mp4
+
+# Ignore temporary files
+*.tmp
+*.swp
+*.swo

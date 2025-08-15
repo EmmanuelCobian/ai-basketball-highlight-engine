@@ -4,11 +4,14 @@ import uuid
 import shutil
 import tempfile
 import asyncio
+import boto3
+import time
 from typing import Dict, Any, List, Optional, Tuple
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, HTTPException
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Query
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
 from utils import get_video_info
 from utils.enhanced_player_tracker import EnhancedPlayerTracker
@@ -20,6 +23,24 @@ from highlight_engine import generate_highlights_frames
 HIGHLIGHTS_FILE_PATH = "highlights.txt"
 PLAYER_MODEL_PATH = "yolo11s.pt"
 BALL_MODEL_PATH = "models/best_im.pt"
+S3_BUCKET = os.getenv("S3_BUCKET", "goplai-s3")
+AWS_REGION = os.getenv("AWS_REGION", "us-east-2")
+
+# WebSocket and timeout configuration
+WEBSOCKET_TIMEOUT = 3600
+HEARTBEAT_INTERVAL = 30
+MAX_PROCESSING_GAP = 60
+USER_INPUT_TIMEOUT = 300
+CONNECTION_TIMEOUT = 30 
+
+# Pydantic models for API responses
+class UploadURLResponse(BaseModel):
+    session_id: str
+    upload_url: str
+    s3_key: str
+
+class StartProcessingRequest(BaseModel):
+    s3_key: str
 
 
 app = FastAPI(title="Basketball Highlight Engine API")
@@ -33,6 +54,9 @@ app.add_middleware(
 )
 
 SESSIONS: Dict[str, Dict[str, Any]] = {}
+
+def get_s3_client():
+    return boto3.client('s3', region_name=AWS_REGION)
 
 
 def _to_py_list(nums):
@@ -57,14 +81,29 @@ def _player_list_from_track(player_track: Dict[int, Dict[str, Any]]) -> List[Dic
 
 
 async def _send_status(ws: WebSocket, frame_num: int, frame_total: int, message: str, fps: float) -> None:
-    await ws.send_json({
-        "type": "status_update",
-        "frame_num": int(frame_num),
-        "frame_current": int(frame_num),
-        "frame_total": int(frame_total),
-        "fps": float(fps),
-        "message": message,
-    })
+    try:
+        await ws.send_json({
+            "type": "status_update",
+            "frame_num": int(frame_num),
+            "frame_current": int(frame_num),
+            "frame_total": int(frame_total),
+            "fps": float(fps),
+            "message": message,
+        })
+    except Exception as e:
+        print(f"Failed to send status update: {e}")
+        raise
+
+async def _send_heartbeat(ws: WebSocket) -> None:
+    """Send heartbeat to keep WebSocket connection alive"""
+    try:
+        await ws.send_json({
+            "type": "heartbeat",
+            "timestamp": int(time.time())
+        })
+    except Exception as e:
+        print(f"Failed to send heartbeat: {e}")
+        raise
 
 
 async def _request_user_input(
@@ -73,6 +112,7 @@ async def _request_user_input(
     data: Dict[str, Any],
     frame_num: int,
     fps: float,
+    timeout_seconds: int = USER_INPUT_TIMEOUT
 ) -> Dict[str, Any]:
     await ws.send_json({
         "type": "user_input_required",
@@ -80,15 +120,44 @@ async def _request_user_input(
         "frame_num": int(frame_num),
         "fps": float(fps),
         "data": data,
+        "timeout_seconds": timeout_seconds
     })
-    while True:
-        msg = await ws.receive_json()
-        if isinstance(msg, dict) and msg.get("response_type"):
-            return msg
+    
+    heartbeat_task = None
+    try:
+        async def send_periodic_heartbeat():
+            while True:
+                await asyncio.sleep(HEARTBEAT_INTERVAL)
+                await _send_heartbeat(ws)
+        
+        heartbeat_task = asyncio.create_task(send_periodic_heartbeat())
+        
+        while True:
+            try:
+                msg = await asyncio.wait_for(ws.receive_json(), timeout=timeout_seconds)
+                if isinstance(msg, dict) and msg.get("response_type"):
+                    return msg
+            except asyncio.TimeoutError:
+                await ws.send_json({
+                    "type": "error",
+                    "message": f"User input timeout after {timeout_seconds} seconds",
+                    "frame_num": int(frame_num),
+                    "fps": float(fps)
+                })
+                raise
+                
+    finally:
+        if heartbeat_task:
+            heartbeat_task.cancel()
+            try:
+                await heartbeat_task
+            except asyncio.CancelledError:
+                pass
 
 
 async def _process_video_session(session: Dict[str, Any], ws: WebSocket) -> None:
     video_path: str = session["video_path"]
+    last_heartbeat = time.time()
 
     # 1) Get video info
     try:
@@ -125,10 +194,8 @@ async def _process_video_session(session: Dict[str, Any], ws: WebSocket) -> None
 
     frame_count = 0
     current_tracked_id: Optional[int] = None
-
-    # Initialize frame_num before loop for error reporting
     frame_num = 0
-
+    
     await _send_status(ws, 0, frame_total, "Starting processing", fps)
 
     try:
@@ -261,9 +328,15 @@ async def _process_video_session(session: Dict[str, Any], ws: WebSocket) -> None
                     while intervals and frame_num > end_f:
                         intervals.pop(0)
 
-                # 7) Periodic status update
+                # 7) Periodic status update and heartbeat management
+                current_time = time.time()
+                
                 if frame_num % 10 == 0 or frame_num == frame_total - 1:
                     await _send_status(ws, frame_num, frame_total, "Processing frames...", fps)
+                    last_heartbeat = current_time
+                elif current_time - last_heartbeat > MAX_PROCESSING_GAP:
+                    await _send_heartbeat(ws)
+                    last_heartbeat = current_time
 
                 frame_count += 1
                 frame_num += 1
@@ -323,49 +396,143 @@ async def _process_video_session(session: Dict[str, Any], ws: WebSocket) -> None
             temp_dir = session.get("temp_dir")
             if temp_dir and os.path.isdir(temp_dir):
                 shutil.rmtree(temp_dir, ignore_errors=True)
+            
+            # Clean up S3 file if it exists
+            s3_key = session.get("s3_key")
+            if s3_key:
+                try:
+                    s3_client = get_s3_client()
+                    s3_client.delete_object(Bucket=S3_BUCKET, Key=s3_key)
+                except Exception as s3_error:
+                    # Log but don't fail if S3 cleanup fails
+                    print(f"Warning: Failed to delete S3 object {s3_key}: {s3_error}")
         except Exception:
             pass
 
 
-@app.post("/sessions")
-async def create_session(file: UploadFile = File(...)):
-    temp_dir = tempfile.mkdtemp(prefix="bb_session_")
-    session_id = str(uuid.uuid4())
-
+@app.post("/upload-url", response_model=UploadURLResponse)
+async def get_upload_url(filename: str = Query(..., description="Name of the video file to upload")):
+    """
+    Generate a presigned URL for direct upload to S3
+    """
     try:
-        file_path = os.path.join(temp_dir, file.filename)
-        with open(file_path, "wb") as f:
-            while True:
-                chunk = await file.read(1024 * 1024)
-                if not chunk:
-                    break
-                f.write(chunk)
+        session_id = str(uuid.uuid4())
+        file_extension = os.path.splitext(filename)[1].lower()
+        s3_key = f"temp-uploads/{session_id}/{session_id}{file_extension}"
+        
+        s3_client = get_s3_client()
+        
+        # Generate presigned URL for PUT operation
+        presigned_url = s3_client.generate_presigned_url(
+            'put_object',
+            Params={
+                'Bucket': S3_BUCKET,
+                'Key': s3_key,
+                'ContentType': 'video/mp4',
+                'Metadata': {
+                    'original-filename': filename,
+                    'upload-timestamp': str(int(time.time())),
+                    'session-id': session_id
+                }
+            },
+            ExpiresIn=3600
+        )
+        
+        return UploadURLResponse(
+            session_id=session_id,
+            upload_url=presigned_url,
+            s3_key=s3_key
+        )
+        
     except Exception as e:
-        shutil.rmtree(temp_dir, ignore_errors=True)
-        raise HTTPException(status_code=400, detail=f"Failed to save uploaded file: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to generate upload URL: {str(e)}")
 
-    SESSIONS[session_id] = {
-        "video_path": file_path,
-        "temp_dir": temp_dir,
-        "status": "uploaded",
-    }
 
-    return JSONResponse({"session_id": session_id})
+@app.post("/sessions/{session_id}/start")
+async def start_processing(session_id: str, request: StartProcessingRequest):
+    """
+    Start processing a video that has been uploaded to S3
+    """
+    try:
+        s3_client = get_s3_client()
+        try:
+            s3_client.head_object(Bucket=S3_BUCKET, Key=request.s3_key)
+        except s3_client.exceptions.NoSuchKey:
+            raise HTTPException(status_code=404, detail="Video file not found in S3")
+        
+        temp_dir = tempfile.mkdtemp(prefix=f"bb_session_{session_id}_")
+        local_filename = os.path.basename(request.s3_key)
+        video_path = os.path.join(temp_dir, local_filename)
+        
+        try:
+            s3_client.download_file(S3_BUCKET, request.s3_key, video_path)
+        except Exception as e:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            raise HTTPException(status_code=500, detail=f"Failed to download video from S3: {str(e)}")
+        
+        SESSIONS[session_id] = {
+            "video_path": video_path,
+            "temp_dir": temp_dir,
+            "s3_key": request.s3_key,
+            "status": "ready_for_processing",
+        }
+        
+        return JSONResponse({
+            "message": "Session created successfully. Connect to WebSocket to start processing.",
+            "session_id": session_id
+        })
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to start processing: {str(e)}")
 
 
 @app.websocket("/ws/{session_id}")
 async def websocket_endpoint(ws: WebSocket, session_id: str):
-    await ws.accept()
-    session = SESSIONS.get(session_id, {})
-    if not session:
-        await ws.send_json({"type": "error", "message": "Invalid session_id", "frame_num": 0, "fps": 0.0})
-        await ws.close(code=1008)
-        return
+    try:
+        await asyncio.wait_for(ws.accept(), timeout=CONNECTION_TIMEOUT)
+        
+        session = SESSIONS.get(session_id, {})
+        if not session:
+            await ws.send_json({"type": "error", "message": "Invalid session_id", "frame_num": 0, "fps": 0.0})
+            await ws.close(code=1008)
+            return
 
-    session["status"] = "processing"
-    await _process_video_session(session, ws)
+        session["status"] = "processing"
+        try:
+            await _process_video_session(session, ws)
+        except asyncio.TimeoutError:
+            await ws.send_json({
+                "type": "error", 
+                "message": "Processing timed out. Please try again with a shorter video.", 
+                "frame_num": 0, 
+                "fps": 0.0
+            })
+            await ws.close(code=1011)
+        except Exception as e:
+            await ws.send_json({
+                "type": "error", 
+                "message": f"Processing failed: {str(e)}", 
+                "frame_num": 0, 
+                "fps": 0.0
+            })
+            await ws.close(code=1011)
 
-    SESSIONS.pop(session_id, None)
+    except asyncio.TimeoutError:
+        print(f"WebSocket connection timeout for session {session_id}")
+        try:
+            await ws.close(code=1008)
+        except:
+            pass
+    except Exception as e:
+        print(f"WebSocket error for session {session_id}: {e}")
+        try:
+            await ws.close(code=1011)
+        except:
+            pass
+    finally:
+        SESSIONS.pop(session_id, None)
 
 
 @app.get("/health")

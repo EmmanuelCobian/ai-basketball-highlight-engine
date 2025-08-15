@@ -1,0 +1,12 @@
+[Unit]
+Description=Basketball API Container
+Requires=docker.service
+After=docker.service
+
+[Service]
+Restart=always
+ExecStart=/usr/bin/docker start -a basketball-api
+ExecStop=/usr/bin/docker stop -t 2 basketball-api
+
+[Install]
+WantedBy=default.target
