@@ -184,7 +184,7 @@ class BasketballAnalysisClient:
     
     async def _handle_status_update(self, data: dict, fps: float) -> None:
         """Handle status update messages"""
-        cur = data.get("frame_num", data.get("frame_current"))
+        cur = data.get("frame_num")
         total = data.get("frame_total")
         message = data.get("message", "Processing...")
         print(f"📊 Frame {cur}/{total} @ {fps:.1f} fps - {message}")

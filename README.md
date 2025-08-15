@@ -166,7 +166,6 @@ All messages are JSON objects. Every server→client message now includes the cu
   {
     "type": "status_update",
     "frame_num": 511,
-    "frame_current": 511,
     "frame_total": 1000,
     "fps": 29.97,
     "message": "Processing frames..."
